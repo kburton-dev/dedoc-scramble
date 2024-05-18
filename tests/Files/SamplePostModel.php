@@ -2,6 +2,7 @@
 
 namespace Dedoc\Scramble\Tests\Files;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
 class SamplePostModel extends Model
@@ -22,6 +23,28 @@ class SamplePostModel extends Model
     public function getReadTimeAttribute()
     {
         return 123;
+    }
+
+    public function getViewsAttribute(): int
+    {
+        return 50;
+    }
+
+    public function userEmail(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->user->email
+        );
+    }
+
+    /**
+     * @return Attribute<string>
+     */
+    public function userName(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->user->name,
+        );
     }
 
     public function parent()

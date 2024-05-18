@@ -57,6 +57,7 @@ class ModelExtension implements MethodReturnTypeExtension, PropertyTypeExtension
         if ($attribute = $info->get('attributes')->get($event->getName())) {
             $baseType = $this->getAttributeTypeFromEloquentCasts($attribute['cast'] ?? '')
                 ?? $this->getAttributeTypeFromDbColumnType($attribute['type'], $attribute['driver'])
+                ?? $this->getVirtualType($attribute['virtualType'])
                 ?? new UnknownType("Virtual attribute ({$attribute['name']}) type inference not supported.");
 
             if ($attribute['nullable']) {
@@ -133,6 +134,18 @@ class ModelExtension implements MethodReturnTypeExtension, PropertyTypeExtension
             'date', 'datetime', 'custom_datetime' => new ObjectType(Carbon::class),
             'immutable_date', 'immutable_datetime', 'immutable_custom_datetime' => new ObjectType(CarbonImmutable::class),
             default => null,
+        };
+    }
+
+    private function getVirtualType(?string $type)
+    {
+        return match ($type) {
+            'int' => new IntegerType(),
+            'float' => new FloatType(),
+            'string' => new StringType(),
+            'array' => new ArrayType(),
+            null => null,
+            default => new ObjectType($type),
         };
     }
 

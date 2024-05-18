@@ -5,6 +5,7 @@ namespace Dedoc\Scramble\Support\ResponseExtractor;
 use BackedEnum;
 use Dedoc\Scramble\Infer\Definition\ClassDefinition;
 use Dedoc\Scramble\Infer\Definition\ClassPropertyDefinition;
+use Dedoc\Scramble\Infer\Reflector\MethodReflector;
 use Dedoc\Scramble\Support\Type\ArrayType;
 use Dedoc\Scramble\Support\Type\BooleanType;
 use Dedoc\Scramble\Support\Type\FloatType;
@@ -15,10 +16,16 @@ use Dedoc\Scramble\Support\Type\ObjectType;
 use Dedoc\Scramble\Support\Type\StringType;
 use Dedoc\Scramble\Support\Type\Union;
 use Dedoc\Scramble\Support\Type\UnknownType;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use PhpParser\Node\NullableType;
+use PHPStan\PhpDocParser\Ast\PhpDoc\PhpDocTagNode;
+use PHPStan\PhpDocParser\Ast\Type\GenericTypeNode;
+use PHPStan\PhpDocParser\Ast\Type\IdentifierTypeNode;
+use PHPStan\PhpDocParser\Ast\Type\NullableTypeNode;
 use ReflectionClass;
 use ReflectionMethod;
 use SplFileObject;
@@ -226,20 +233,68 @@ class ModelInfo
                 }
             })
             ->reject(fn ($cast, $name) => $keyedColumns->has($name))
-            ->map(fn ($cast, $name) => [
-                'driver' => null,
-                'name' => $name,
-                'type' => null,
-                'increments' => false,
-                'nullable' => null,
-                'default' => null,
-                'unique' => null,
-                'fillable' => $model->isFillable($name),
-                'hidden' => $this->attributeIsHidden($name, $model),
-                'appended' => $model->hasAppended($name),
-                'cast' => $cast,
-            ])
+            ->map(function ($cast, $name) use ($model) {
+                $virtualType = match ($cast) {
+                    'attribute' => $this->getAttributeType($model, $name),
+                    'accessor' => $this->getAccessorType($model, $name),
+                    default => null
+                };
+
+                return [
+                    'driver' => null,
+                    'name' => $name,
+                    'type' => null,
+                    'virtualType' => $virtualType ? trim($virtualType, '?') : null,
+                    'increments' => false,
+                    'nullable' => str($virtualType)->contains('?'),
+                    'default' => null,
+                    'unique' => null,
+                    'fillable' => $model->isFillable($name),
+                    'hidden' => $this->attributeIsHidden($name, $model),
+                    'appended' => $model->hasAppended($name),
+                    'cast' => $cast,
+                ];
+            })
             ->values();
+    }
+
+    /**
+     * @todo infer type based on parsed statements, analysing the getter function.
+     */
+    protected function getAttributeType(Model $model, string $attributeName): ?string
+    {
+        $attributeMethodNode = MethodReflector::make($model::class, Str::camel($attributeName))->getAstNode();
+
+        $type = collect($attributeMethodNode->getAttribute('parsedPhpDoc')?->children)
+            ->filter(fn (PhpDocTagNode $docNode) => $docNode->name === '@return')
+            ->filter(fn (PhpDocTagNode $docNode) => $docNode->value->type instanceof GenericTypeNode)
+            ->filter(fn (PhpDocTagNode $docNode) => $docNode->value->type->type instanceof IdentifierTypeNode)
+            ->filter(fn (PhpDocTagNode $docNode) => $docNode->value->type->type->name === Attribute::class)
+            ->map(fn (PhpDocTagNode $docNode) => $docNode->value->type->genericTypes[0] ?? null)
+            ->first();
+
+        if ($type) {
+            return $type instanceof NullableTypeNode ? "?{$type->type->name}" : $type->name;
+        }
+
+        return null;
+    }
+
+    /**
+     * @todo infer type based on parsed statements, analysing the return statement(s).
+     */
+    protected function getAccessorType(Model $model, string $attributeName): ?string
+    {
+        $methodName = str($attributeName)->studly()->prepend('get')->append('Attribute');
+        $type = MethodReflector::make($model::class, $methodName)
+            ->getAstNode()
+            ->getReturnType();
+
+        if ($type) {
+            return $type instanceof NullableType ? "?{$type->type->name}" : $type->name;
+        }
+
+        return null;
     }
 
     /**

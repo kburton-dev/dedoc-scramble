@@ -31,6 +31,9 @@ it('adds models attributes to the model class definition as properties', functio
         'updated_at' => 'Carbon\Carbon|null',
         /* Appended attributes */
         'read_time' => 'unknown',
+        'views' => 'int',
+        'user_email' => 'unknown',
+        'user_name' => 'string',
         /* Relations */
         'user' => 'SampleUserModel',
         'parent' => 'SamplePostModel',
